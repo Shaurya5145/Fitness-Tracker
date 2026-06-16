@@ -11,7 +11,7 @@ class AppRepository(private val db: AppDatabase) {
         db.clearAllTables()
     }
 
-    suspend fun replaceAllDataForRestore(restore: suspend AppRepository.() -> Unit) {
+    suspend fun replaceAllDataForRestore(restore: suspend AppRepository.() -> Unit = {}) {
         db.withTransaction {
             clearTablesForRestore()
             this@AppRepository.restore()
