@@ -23,6 +23,9 @@ interface RoutineDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRoutine(routine: Routine): Long
 
+    @Query("DELETE FROM routines")
+    suspend fun deleteAllRoutines()
+
     @Update
     suspend fun updateRoutine(routine: Routine)
 
@@ -32,6 +35,9 @@ interface RoutineDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRoutineExercise(routineExercise: RoutineExercise): Long
 
+    @Query("DELETE FROM routine_exercises")
+    suspend fun deleteAllRoutineExercises()
+
     @Update
     suspend fun updateRoutineExercise(routineExercise: RoutineExercise)
 
@@ -40,6 +46,9 @@ interface RoutineDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSetTarget(setTarget: SetTarget): Long
+
+    @Query("DELETE FROM set_targets")
+    suspend fun deleteAllSetTargets()
 
     @Query("DELETE FROM set_targets WHERE routineExerciseId = :routineExerciseId")
     suspend fun deleteSetTargetsForExercise(routineExerciseId: Long)

@@ -1,5 +1,6 @@
 package com.example.data
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 
 class AppRepository(private val db: AppDatabase) {
@@ -8,6 +9,30 @@ class AppRepository(private val db: AppDatabase) {
 
     fun clearAllData() {
         db.clearAllTables()
+    }
+
+    suspend fun replaceAllDataForRestore(restore: suspend AppRepository.() -> Unit) {
+        db.withTransaction {
+            clearTablesForRestore()
+            this@AppRepository.restore()
+        }
+    }
+
+    private suspend fun clearTablesForRestore() {
+        routineDao.deleteAllSetTargets()
+        routineDao.deleteAllRoutineExercises()
+        routineDao.deleteAllRoutines()
+
+        dao.deleteAllExerciseSets()
+        dao.deleteAllWorkoutExercises()
+        dao.deleteAllWorkoutSessions()
+        dao.deleteAllMealLogs()
+        dao.deleteAllMeals()
+        dao.deleteAllProgressPhotos()
+        dao.deleteAllWeightRecords()
+        dao.deleteAllExerciseMappings()
+        dao.deleteAllTargetWeight()
+        dao.deleteAllTargetNutrition()
     }
 
     val allWeightRecords: Flow<List<WeightRecord>> = dao.getAllWeightRecords()
@@ -41,6 +66,7 @@ class AppRepository(private val db: AppDatabase) {
     suspend fun getAllProgressPhotosSnapshot() = dao.getAllProgressPhotosSnapshot()
     suspend fun getAllExerciseMappingsSnapshot() = dao.getAllExerciseMappingsSnapshot()
     suspend fun getTargetWeightSnapshot() = dao.getTargetWeightSnapshot()
+    suspend fun getTargetNutritionSnapshot() = dao.getTargetNutritionSnapshot()
     suspend fun getAllRoutinesWithExercisesSnapshot() = routineDao.getAllRoutinesWithExercisesSnapshot()
 
     fun getMealLogsForDate(date: Long) = dao.getMealLogsForDate(date)
