@@ -1,26 +1,34 @@
 package com.example.data
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 
 class AppRepository(private val db: AppDatabase) {
     private val dao = db.appDao()
     private val routineDao = db.routineDao()
 
-    suspend fun replaceAllDataForRestore() {
-        dao.deleteAllWeightRecords()
-        dao.deleteAllWorkoutSessions()
-        dao.deleteAllWorkoutExercises()
+    suspend fun replaceAllDataForRestore(restore: suspend AppRepository.() -> Unit = {}) {
+        db.withTransaction {
+            clearTablesForRestore()
+            this@AppRepository.restore()
+        }
+    }
+
+    private suspend fun clearTablesForRestore() {
+        routineDao.deleteAllSetTargets()
+        routineDao.deleteAllRoutineExercises()
+        routineDao.deleteAllRoutines()
+
         dao.deleteAllExerciseSets()
-        dao.deleteAllMeals()
+        dao.deleteAllWorkoutExercises()
+        dao.deleteAllWorkoutSessions()
         dao.deleteAllMealLogs()
+        dao.deleteAllMeals()
         dao.deleteAllProgressPhotos()
+        dao.deleteAllWeightRecords()
         dao.deleteAllExerciseMappings()
         dao.deleteAllTargetWeight()
         dao.deleteAllTargetNutrition()
-        
-        routineDao.deleteAllRoutines()
-        routineDao.deleteAllRoutineExercises()
-        routineDao.deleteAllSetTargets()
     }
 
     val allWeightRecords: Flow<List<WeightRecord>> = dao.getAllWeightRecords()
