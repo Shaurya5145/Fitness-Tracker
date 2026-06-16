@@ -104,6 +104,12 @@ class FitnessViewModel(private val repository: AppRepository) : ViewModel() {
         }
     }
 
+    fun sendPasswordResetEmail(email: String, onResult: (AuthOperationResult) -> Unit) {
+        viewModelScope.launch {
+            onResult(authManager.sendPasswordResetEmail(email))
+        }
+    }
+
     val weightRecords: StateFlow<List<WeightRecord>> = repository.allWeightRecords
         .stateIn(
             scope = viewModelScope,
