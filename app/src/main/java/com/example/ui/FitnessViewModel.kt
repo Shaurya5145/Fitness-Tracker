@@ -65,7 +65,7 @@ class FitnessViewModel(private val repository: AppRepository) : ViewModel() {
     fun signOutAndClearData(onComplete: () -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             authManager.signOut()
-            repository.clearAllData()
+            repository.replaceAllDataForRestore()
             authManager.trySignInAnonymously()
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                 onComplete()

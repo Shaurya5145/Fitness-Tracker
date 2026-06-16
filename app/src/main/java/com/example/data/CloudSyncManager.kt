@@ -4,9 +4,8 @@ import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -18,8 +17,11 @@ import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
 class CloudSyncManager(val repository: AppRepository) {
-    private val backupMutex = Mutex()
+    private val syncMutex = Mutex()
 
     private val firestore: FirebaseFirestore? by lazy {
         try {
@@ -52,8 +54,18 @@ class CloudSyncManager(val repository: AppRepository) {
 
         val url = com.example.BuildConfig.CLOUDINARY_URL
         if (url.isNullOrEmpty() || url.contains("DEFAULT")) {
-            onError("Cloudinary is not configured. Photo stays local and will not be included in cloud backup.")
-            return@withContext null
+            // Fallback to storing as Base64 encoded string if Cloudinary is not configured
+            try {
+                val bitmap = android.graphics.BitmapFactory.decodeFile(photoPath)
+                val out = java.io.ByteArrayOutputStream()
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 40, out)
+                val bytes = out.toByteArray()
+                val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT)
+                return@withContext "data:image/jpeg;base64,$base64"
+            } catch (e: Exception) {
+                onError("Cloudinary not configured and local compression failed.")
+                return@withContext null
+            }
         }
         
         try {
@@ -178,84 +190,82 @@ class CloudSyncManager(val repository: AppRepository) {
     }
 
     // Call this after any important local change
-    suspend fun backupToCloud(): Boolean = backupMutex.withLock {
-        withContext(Dispatchers.IO) {
-            val user = auth?.currentUser ?: return@withContext false
-            val db = firestore ?: return@withContext false
+    suspend fun backupToCloud(): Boolean = syncMutex.withLock {
+        val user = auth?.currentUser ?: return false
+        val db = firestore ?: return false
 
-            try {
-                val weightRecords = repository.getAllWeightRecordsSnapshot()
-                val meals = repository.getAllMealsSnapshot()
-                val mealLogs = repository.getAllMealLogsSnapshot()
-                val progressPhotos = repository.getAllProgressPhotosSnapshot()
-                val fullWorkoutSessions = repository.getFullWorkoutSessionsSnapshot()
-                val exerciseMappings = repository.getAllExerciseMappingsSnapshot()
-                val targetWeight = repository.getTargetWeightSnapshot()
-                val targetNutrition = repository.getTargetNutritionSnapshot()
-                val routines = repository.getAllRoutinesWithExercisesSnapshot()
+        try {
+            // Collect all data
+            val weightRecords = repository.getAllWeightRecordsSnapshot()
+            val meals = repository.getAllMealsSnapshot()
+            val mealLogs = repository.getAllMealLogsSnapshot()
+            val progressPhotos = repository.getAllProgressPhotosSnapshot()
+            val fullWorkoutSessions = repository.getFullWorkoutSessionsSnapshot()
+            val exerciseMappings = repository.getAllExerciseMappingsSnapshot()
+            val targetWeight = repository.getTargetWeightSnapshot()
+            val targetNutrition = repository.getTargetNutritionSnapshot()
+            val routines = repository.getAllRoutinesWithExercisesSnapshot()
 
-                val data = hashMapOf(
-                    "weightRecords" to weightRecords,
-                    "meals" to meals,
-                    "mealLogs" to mealLogs,
-                    "progressPhotos" to progressPhotos,
-                    "workoutSessions" to fullWorkoutSessions,
-                    "exerciseMappings" to exerciseMappings,
-                    "targetWeight" to targetWeight,
-                    "targetNutrition" to targetNutrition,
-                    "routines" to routines,
-                    "updatedAt" to System.currentTimeMillis()
-                )
+            val data = hashMapOf(
+                "weightRecords" to weightRecords,
+                "meals" to meals,
+                "mealLogs" to mealLogs,
+                "progressPhotos" to progressPhotos,
+                "workoutSessions" to fullWorkoutSessions,
+                "exerciseMappings" to exerciseMappings,
+                "targetWeight" to targetWeight,
+                "targetNutrition" to targetNutrition,
+                "routines" to routines,
+                "updatedAt" to System.currentTimeMillis()
+            )
 
-                db.collection("users").document(user.uid)
-                    .set(data, SetOptions.merge())
-                    .await()
-                Log.d("CloudSync", "Backup successful")
-                true
-            } catch (e: Exception) {
-                Log.e("CloudSync", "Backup failed", e)
-                false
-            }
+            db.collection("users").document(user.uid)
+                .set(data, SetOptions.merge())
+                .await()
+            Log.d("CloudSync", "Backup successful")
+            return true
+        } catch (e: Exception) {
+            Log.e("CloudSync", "Backup failed", e)
+            return false
         }
     }
 
-    suspend fun restoreFromCloud(): Boolean = withContext(Dispatchers.IO) {
-        val user = auth?.currentUser ?: return@withContext false
-        val db = firestore ?: return@withContext false
+    suspend fun restoreFromCloud(): Boolean = syncMutex.withLock {
+        val user = auth?.currentUser ?: return false
+        val db = firestore ?: return false
 
         try {
             val doc = db.collection("users").document(user.uid).get().await()
             if (doc.exists()) {
+                repository.replaceAllDataForRestore()
+                
                 val meals = doc.get("meals") as? List<Map<String, Any>> ?: emptyList()
-                val mealEntities = meals.map { map ->
+                meals.forEach { map ->
                     val id = (map["id"] as? Number)?.toLong() ?: 0L
                     val name = map["name"] as? String ?: ""
                     val calories = (map["calories"] as? Number)?.toInt() ?: 0
                     val protein = (map["protein"] as? Number)?.toFloat() ?: 0f
-                    val reminderHour = (map["reminderHour"] as? Number)?.toInt()
-                    val reminderMinute = (map["reminderMinute"] as? Number)?.toInt()
-                    val isTemplate = map["isTemplate"] as? Boolean ?: true
-                    Meal(id, name, calories, protein, reminderHour, reminderMinute, isTemplate)
+                    repository.insertMeal(Meal(id, name, calories, protein))
                 }
                 
                 val weightRecords = doc.get("weightRecords") as? List<Map<String, Any>> ?: emptyList()
-                val weightEntities = weightRecords.map { map ->
+                weightRecords.forEach { map ->
                     val dateStamp = (map["dateStamp"] as? Number)?.toLong() ?: 0L
                     val weightKg = (map["weightKg"] as? Number)?.toFloat() ?: 0f
-                    WeightRecord(dateStamp, weightKg)
+                    repository.insertWeightRecord(WeightRecord(dateStamp, weightKg))
                 }
                 
                 val mealLogs = doc.get("mealLogs") as? List<Map<String, Any>> ?: emptyList()
-                val mealLogEntities = mealLogs.map { map ->
+                mealLogs.forEach { map ->
                     val id = (map["id"] as? Number)?.toLong() ?: 0L
                     val mealId = (map["mealId"] as? Number)?.toLong() ?: 0L
                     val dateStamp = (map["dateStamp"] as? Number)?.toLong() ?: 0L
                     val mealType = map["mealType"] as? String ?: "Snacks"
-                    MealLog(id, mealId, dateStamp, mealType)
+                    repository.insertMealLog(MealLog(id, mealId, dateStamp, mealType))
                 }
 
                 val progressPhotos = doc.get("progressPhotos") as? List<Map<String, Any>> ?: emptyList()
-                val progressPhotoEntities = progressPhotos.map { map ->
+                progressPhotos.forEach { map ->
                     val id = (map["id"] as? Number)?.toLong() ?: 0L
                     val dateStamp = (map["dateStamp"] as? Number)?.toLong() ?: 0L
                     val imagePath = map["imagePath"] as? String ?: ""
@@ -268,40 +278,30 @@ class CloudSyncManager(val repository: AppRepository) {
                         try {
                             val base64 = remoteUrl.substring(remoteUrl.indexOf(",") + 1)
                             val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
-                            val imageFile = File(imagePath)
-                            imageFile.parentFile?.mkdirs()
-                            java.io.FileOutputStream(imageFile).use { it.write(bytes) }
+                            java.io.FileOutputStream(File(imagePath)).use { it.write(bytes) }
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
                     }
 
-                    ProgressPhoto(id, dateStamp, imagePath, viewType, remoteUrl, weightKg, notes)
+                    repository.insertProgressPhoto(ProgressPhoto(id, dateStamp, imagePath, viewType, remoteUrl, weightKg, notes))
                 }
 
                 val workoutSessions = doc.get("workoutSessions") as? List<Map<String, Any>> ?: emptyList()
-                val workoutSessionEntities = workoutSessions.mapNotNull { sessionMapWrapper ->
-                    val sessionMap = sessionMapWrapper["session"] as? Map<String, Any> ?: return@mapNotNull null
-                    val sessionId = (sessionMap["id"] as? Number)?.toLong() ?: 0L
-                    val timestamp = (sessionMap["timestamp"] as? Number)?.toLong() ?: 0L
-                    val startTimeStamp = (sessionMap["startTimeStamp"] as? Number)?.toLong() ?: 0L
-                    val endTimeStamp = (sessionMap["endTimeStamp"] as? Number)?.toLong() ?: 0L
-                    val sessionName = sessionMap["name"] as? String ?: ""
-                    val notes = sessionMap["notes"] as? String ?: ""
-                    WorkoutSession(id = sessionId, timestamp = timestamp, startTimeStamp = startTimeStamp, endTimeStamp = endTimeStamp, name = sessionName, notes = notes)
-                }
-
-                val workoutExerciseEntities = mutableListOf<WorkoutExercise>()
-                val exerciseSetEntities = mutableListOf<ExerciseSet>()
                 workoutSessions.forEach { sessionMapWrapper ->
                     val sessionMap = sessionMapWrapper["session"] as? Map<String, Any> ?: return@forEach
                     val sessionId = (sessionMap["id"] as? Number)?.toLong() ?: 0L
+                    val timestamp = (sessionMap["timestamp"] as? Number)?.toLong() ?: 0L
+                    val sessionName = sessionMap["name"] as? String ?: ""
+                    val notes = sessionMap["notes"] as? String ?: ""
+                    repository.insertWorkoutSession(WorkoutSession(id = sessionId, timestamp = timestamp, name = sessionName, notes = notes))
+
                     val exercisesList = sessionMapWrapper["exercises"] as? List<Map<String, Any>> ?: emptyList()
                     exercisesList.forEach { exMapWrapper ->
                         val exMap = exMapWrapper["exercise"] as? Map<String, Any> ?: return@forEach
                         val exId = (exMap["id"] as? Number)?.toLong() ?: 0L
                         val exName = exMap["exerciseName"] as? String ?: ""
-                        workoutExerciseEntities.add(WorkoutExercise(id = exId, sessionId = sessionId, exerciseName = exName))
+                        repository.insertWorkoutExercise(WorkoutExercise(id = exId, sessionId = sessionId, exerciseName = exName))
 
                         val setsList = exMapWrapper["sets"] as? List<Map<String, Any>> ?: emptyList()
                         setsList.forEach { setMap ->
@@ -312,37 +312,29 @@ class CloudSyncManager(val repository: AppRepository) {
                             val isDropSet = (setMap["isDropSet"] as? Boolean) ?: (setMap["dropSet"] as? Boolean) ?: false
                             val durationMinutes = (setMap["durationMinutes"] as? Number)?.toInt() ?: 0
                             val distance = (setMap["distance"] as? Number)?.toFloat() ?: 0f
-                            exerciseSetEntities.add(ExerciseSet(id = setId, exerciseId = exId, setNumber = setNumber, reps = reps, weightKg = weightKg, isDropSet = isDropSet, durationMinutes = durationMinutes, distance = distance))
+                            repository.insertExerciseSet(ExerciseSet(id = setId, exerciseId = exId, setNumber = setNumber, reps = reps, weightKg = weightKg, isDropSet = isDropSet, durationMinutes = durationMinutes, distance = distance))
                         }
                     }
                 }
 
                 val exerciseMappings = doc.get("exerciseMappings") as? List<Map<String, Any>> ?: emptyList()
-                val exerciseMappingEntities = exerciseMappings.mapNotNull { map ->
+                exerciseMappings.forEach { map ->
                     val exerciseName = map["exerciseName"] as? String ?: ""
                     val muscleGroup = map["muscleGroup"] as? String ?: "Other"
-                    if (exerciseName.isNotEmpty()) ExerciseMapping(exerciseName, muscleGroup) else null
+                    if (exerciseName.isNotEmpty()) {
+                        repository.insertExerciseMappings(listOf(ExerciseMapping(exerciseName, muscleGroup)))
+                    }
                 }
 
                 val targetWeightMap = doc.get("targetWeight") as? Map<String, Any>
-                val targetWeightEntity = if (targetWeightMap != null) {
+                if (targetWeightMap != null) {
                     val weightKg = (targetWeightMap["targetWeightKg"] as? Number)?.toFloat() ?: 0f
                     val dateStamp = (targetWeightMap["targetDateStamp"] as? Number)?.toLong() ?: 0L
                     val startWeightKg = (targetWeightMap["startWeightKg"] as? Number)?.toFloat() ?: 0f
-                    TargetWeight(1, weightKg, dateStamp, startWeightKg)
-                } else null
-
-                val targetNutritionMap = doc.get("targetNutrition") as? Map<String, Any>
-                val targetNutritionEntity = if (targetNutritionMap != null) {
-                    val calories = (targetNutritionMap["targetCalories"] as? Number)?.toInt() ?: 0
-                    val protein = (targetNutritionMap["targetProtein"] as? Number)?.toFloat() ?: 0f
-                    TargetNutrition(1, calories, protein)
-                } else null
+                    repository.insertTargetWeight(TargetWeight(1, weightKg, dateStamp, startWeightKg))
+                }
 
                 val routinesList = doc.get("routines") as? List<Map<String, Any>> ?: emptyList()
-                val routineEntities = mutableListOf<Routine>()
-                val routineExerciseEntities = mutableListOf<RoutineExercise>()
-                val setTargetEntities = mutableListOf<SetTarget>()
                 routinesList.forEach { routineMapWrapper ->
                     val routineMap = routineMapWrapper["routine"] as? Map<String, Any> ?: return@forEach
                     val routineId = (routineMap["id"] as? Number)?.toLong() ?: 0L
@@ -354,7 +346,7 @@ class CloudSyncManager(val repository: AppRepository) {
                     val updatedAt = (routineMap["updatedAt"] as? Number)?.toLong() ?: 0L
                     val exerciseOrder = routineMap["exerciseOrder"] as? String ?: ""
                     
-                    routineEntities.add(Routine(id = routineId, name = name, description = description, folderId = folderId, estimatedDuration = estimatedDuration, createdAt = createdAt, updatedAt = updatedAt, exerciseOrder = exerciseOrder))
+                    repository.insertRoutine(Routine(id = routineId, name = name, description = description, folderId = folderId, estimatedDuration = estimatedDuration, createdAt = createdAt, updatedAt = updatedAt, exerciseOrder = exerciseOrder))
                     
                     val exercisesList = routineMapWrapper["exercises"] as? List<Map<String, Any>> ?: emptyList()
                     exercisesList.forEach { exMapWrapper ->
@@ -366,7 +358,7 @@ class CloudSyncManager(val repository: AppRepository) {
                         val restDurationSeconds = (exMap["restDurationSeconds"] as? Number)?.toInt() ?: 0
                         val supersetGroupId = exMap["supersetGroupId"] as? String ?: ""
                         
-                        routineExerciseEntities.add(RoutineExercise(id = exId, routineId = routineId, exerciseName = exerciseName, orderIndex = orderIndex, note = note, restDurationSeconds = restDurationSeconds, supersetGroupId = supersetGroupId))
+                        repository.insertRoutineExercise(RoutineExercise(id = exId, routineId = routineId, exerciseName = exerciseName, orderIndex = orderIndex, note = note, restDurationSeconds = restDurationSeconds, supersetGroupId = supersetGroupId))
                         
                         val targetsList = exMapWrapper["targets"] as? List<Map<String, Any>> ?: emptyList()
                         targetsList.forEach { targetMap ->
@@ -380,39 +372,28 @@ class CloudSyncManager(val repository: AppRepository) {
                             val targetDuration = (targetMap["targetDuration"] as? Number)?.toInt() ?: 0
                             val targetDistance = (targetMap["targetDistance"] as? Number)?.toFloat() ?: 0f
                             
-                            setTargetEntities.add(SetTarget(id = targetId, routineExerciseId = exId, orderIndex = targetOrderIndex, setType = setType, targetWeight = targetWeight, targetReps = targetReps, minimumReps = minimumReps, maximumReps = maximumReps, targetDuration = targetDuration, targetDistance = targetDistance))
+                            repository.insertSetTarget(SetTarget(id = targetId, routineExerciseId = exId, orderIndex = targetOrderIndex, setType = setType, targetWeight = targetWeight, targetReps = targetReps, minimumReps = minimumReps, maximumReps = maximumReps, targetDuration = targetDuration, targetDistance = targetDistance))
                         }
                     }
                 }
 
-                repository.replaceAllDataForRestore {
-                    mealEntities.forEach { insertMeal(it) }
-                    weightEntities.forEach { insertWeightRecord(it) }
-                    mealLogEntities.forEach { insertMealLog(it) }
-                    progressPhotoEntities.forEach { insertProgressPhoto(it) }
-                    workoutSessionEntities.forEach { insertWorkoutSession(it) }
-                    workoutExerciseEntities.forEach { insertWorkoutExercise(it) }
-                    exerciseSetEntities.forEach { insertExerciseSet(it) }
-                    if (exerciseMappingEntities.isNotEmpty()) {
-                        insertExerciseMappings(exerciseMappingEntities)
-                    }
-                    targetWeightEntity?.let { insertTargetWeight(it) }
-                    targetNutritionEntity?.let { insertTargetNutrition(it) }
-                    routineEntities.forEach { insertRoutine(it) }
-                    routineExerciseEntities.forEach { insertRoutineExercise(it) }
-                    setTargetEntities.forEach { insertSetTarget(it) }
+                val targetNutritionMap = doc.get("targetNutrition") as? Map<String, Any>
+                if (targetNutritionMap != null) {
+                    val targetCalories = (targetNutritionMap["targetCalories"] as? Number)?.toInt() ?: 0
+                    val targetProtein = (targetNutritionMap["targetProtein"] as? Number)?.toFloat() ?: 0f
+                    repository.insertTargetNutrition(TargetNutrition(1, targetCalories, targetProtein))
                 }
 
+                // Add other syncs as necessary
                 Log.d("CloudSync", "Restore successful")
-                true
+                return true
             } else {
-                val backupSucceeded = backupToCloud()
-                Log.d("CloudSync", "No cloud data found. Backed up local data to cloud.")
-                backupSucceeded
+                Log.d("CloudSync", "No cloud data found.")
+                return false
             }
         } catch (e: Exception) {
             Log.e("CloudSync", "Restore failed", e)
-            false
+            return false
         }
     }
 }

@@ -70,7 +70,7 @@ fun DashboardScreen(viewModel: FitnessViewModel, navController: NavController) {
 
     Scaffold(
         containerColor = Color.Black,
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
         val todayStart = remember {
             Calendar.getInstance().apply {
@@ -152,9 +152,10 @@ fun DashboardScreen(viewModel: FitnessViewModel, navController: NavController) {
                             DropdownMenuItem(
                                 text = { Text("Backup to Cloud") },
                                 onClick = {
-                                    scope.launch {
-                                        val success = viewModel.cloudSyncManager.backupToCloud()
-                                        snackbarHostState.showSnackbar(if (success) "Backup complete" else "Backup failed")
+                                    scope.launch { 
+                                        val success = viewModel.cloudSyncManager.backupToCloud() 
+                                        if (success) snackbarHostState.showSnackbar("Backup successful")
+                                        else snackbarHostState.showSnackbar("Backup failed")
                                     }
                                     showSyncOptions = false
                                 }
@@ -162,9 +163,10 @@ fun DashboardScreen(viewModel: FitnessViewModel, navController: NavController) {
                             DropdownMenuItem(
                                 text = { Text("Restore from Cloud") },
                                 onClick = {
-                                    scope.launch {
-                                        val success = viewModel.cloudSyncManager.restoreFromCloud()
-                                        snackbarHostState.showSnackbar(if (success) "Restore complete" else "Restore failed")
+                                    scope.launch { 
+                                        val success = viewModel.cloudSyncManager.restoreFromCloud() 
+                                        if (success) snackbarHostState.showSnackbar("Restore successful")
+                                        else snackbarHostState.showSnackbar("Restore failed")
                                     }
                                     showSyncOptions = false
                                 }
