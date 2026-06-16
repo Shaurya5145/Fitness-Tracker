@@ -107,7 +107,7 @@ interface AppDao {
     suspend fun getAllProgressPhotosSnapshot(): List<ProgressPhoto>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertProgressPhoto(photo: ProgressPhoto)
+    suspend fun insertProgressPhoto(photo: ProgressPhoto): Long
 
     @Delete
     suspend fun deleteProgressPhoto(photo: ProgressPhoto)

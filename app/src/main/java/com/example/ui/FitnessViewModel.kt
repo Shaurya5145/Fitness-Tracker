@@ -1,5 +1,6 @@
 package com.example.ui
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -298,29 +299,21 @@ class FitnessViewModel(private val repository: AppRepository) : ViewModel() {
     val allRoutinesWithExercises: StateFlow<List<RoutineWithExercises>> = repository.allRoutinesWithExercises
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun saveRoutine(routine: Routine, exercises: List<RoutineExerciseWithTargets>) {
+    fun saveRoutine(
+        routine: Routine,
+        exercises: List<RoutineExerciseWithTargets>,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
         viewModelScope.launch {
-            try {
-                val routineId = if (routine.id == 0L) {
-                    repository.insertRoutine(routine)
-                } else {
-                    repository.updateRoutine(routine)
-                    repository.deleteExercisesForRoutine(routine.id) // Will wipe exercise links and cascade to sets
-                    routine.id
-                }
-
-                exercises.forEachIndexed { exIndex, exWithTargets ->
-                    val newEx = exWithTargets.exercise.copy(routineId = routineId, orderIndex = exIndex, id = 0L)
-                    val newExId = repository.insertRoutineExercise(newEx)
-                    
-                    exWithTargets.targets.forEachIndexed { setIndex, setTarget ->
-                        repository.insertSetTarget(setTarget.copy(routineExerciseId = newExId, orderIndex = setIndex, id = 0L))
-                    }
-                }
+            val success = try {
+                repository.saveRoutineWithExercises(routine, exercises)
                 cloudSyncManager.backupToCloud()
+                true
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("FitnessViewModel", "Failed to save routine", e)
+                false
             }
+            onComplete(success)
         }
     }
 
@@ -330,7 +323,7 @@ class FitnessViewModel(private val repository: AppRepository) : ViewModel() {
                 repository.deleteRoutine(routine)
                 cloudSyncManager.backupToCloud()
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("FitnessViewModel", "Failed to delete routine", e)
             }
         }
     }
@@ -357,7 +350,7 @@ class FitnessViewModel(private val repository: AppRepository) : ViewModel() {
                 cloudSyncManager.backupToCloud()
                 onCreated(sId)
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("FitnessViewModel", "Failed to create session from routine", e)
             }
         }
     }
@@ -530,24 +523,18 @@ class FitnessViewModel(private val repository: AppRepository) : ViewModel() {
     fun addProgressPhoto(dateStamp: Long, imagePath: String, viewType: String, weightKg: Float? = null, notes: String = "") {
         viewModelScope.launch {
             val photo = ProgressPhoto(dateStamp = dateStamp, imagePath = imagePath, viewType = viewType, weightKg = weightKg, notes = notes)
-            repository.insertProgressPhoto(photo)
+            val photoId = repository.insertProgressPhoto(photo)
             
             // Sync in background
             val remoteUrl = cloudSyncManager.uploadPhotoToCloudinary(imagePath) { errorMsg ->
                 _uploadError.value = errorMsg
             }
 
-            if (remoteUrl != null) {
-                // To avoid complexity of ID, query by dateStamp.
-                val allPhotos = repository.allProgressPhotos.first()
-                val updatedPhoto = allPhotos.find { it.dateStamp == dateStamp && it.viewType == viewType }
-                if (updatedPhoto != null) {
-                    repository.updateProgressPhoto(updatedPhoto.copy(remoteUrl = remoteUrl))
-                    cloudSyncManager.backupToCloud()
-                }
-            } else {
-                cloudSyncManager.backupToCloud()
+            if (remoteUrl != null && photoId > 0L) {
+                repository.updateProgressPhoto(photo.copy(id = photoId, remoteUrl = remoteUrl))
             }
+
+            cloudSyncManager.backupToCloud()
         }
     }
 

@@ -1,5 +1,6 @@
 package com.example.ui
 
+import android.util.Log
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -440,7 +441,7 @@ fun MealsScreen(viewModel: FitnessViewModel) {
         val galleryLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()) { uri ->
             if (uri != null && currentLogDate != null) {
                 try {
-                    val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION.SDK_INT) {
+                    val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
                         val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
                         android.graphics.ImageDecoder.decodeBitmap(source) { decoder, info, source1 ->
                             decoder.isMutableRequired = true
@@ -451,7 +452,12 @@ fun MealsScreen(viewModel: FitnessViewModel) {
                             decoder.setTargetSize((info.size.width * scale).toInt(), (info.size.height * scale).toInt())
                         }
                     } else {
-                        android.provider.MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            android.graphics.BitmapFactory.decodeStream(input)
+                        }
+                    }
+                    if (bitmap == null) {
+                        return@rememberLauncherForActivityResult
                     }
                     val stream = java.io.ByteArrayOutputStream()
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, stream)
@@ -460,7 +466,9 @@ fun MealsScreen(viewModel: FitnessViewModel) {
                         aiInput = ""
                         showLogFoodDialog = null
                     }
-                } catch(e: Exception) { e.printStackTrace() }
+                } catch (e: Exception) {
+                    Log.e("MealsScreen", "Failed to process selected meal image", e)
+                }
             }
         }
 

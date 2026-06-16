@@ -1,5 +1,6 @@
 package com.example.ui
 
+import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,6 +28,13 @@ import androidx.activity.compose.BackHandler
 import com.example.data.*
 import kotlinx.coroutines.launch
 import java.util.*
+
+private data class RoutineEditorDraft(
+    val name: String,
+    val folderId: String,
+    val description: String,
+    val exercises: List<RoutineExerciseWithTargets>
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +46,7 @@ fun RoutineBuilderScreen(
 ) {
     val routines by viewModel.allRoutinesWithExercises.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     
     var routineName by remember { mutableStateOf("") }
     var folderId by remember { mutableStateOf("My Routines") }
@@ -46,22 +56,52 @@ fun RoutineBuilderScreen(
     var exercises by remember { mutableStateOf(listOf<RoutineExerciseWithTargets>()) }
     var showUnsavedDialog by remember { mutableStateOf(false) }
     var showExerciseSelection by remember { mutableStateOf(false) }
+    var initialDraft by remember(initialRoutineIndex) { mutableStateOf<RoutineEditorDraft?>(null) }
+    var didLoadInitialData by remember(initialRoutineIndex) { mutableStateOf(false) }
+    var isSaving by remember { mutableStateOf(false) }
+    val existingRoutine = remember(routines, initialRoutineIndex) {
+        routines.find { it.routine.id == initialRoutineIndex }
+    }
 
     // Init state if editing
-    LaunchedEffect(initialRoutineIndex) {
-        if (initialRoutineIndex != null) {
-            val existing = routines.find { it.routine.id == initialRoutineIndex }
-            if (existing != null) {
-                routineName = existing.routine.name
-                folderId = existing.routine.folderId
-                routineDescription = existing.routine.description
-                showDescription = routineDescription.isNotBlank()
-                exercises = existing.exercises.sortedBy { it.exercise.orderIndex }
-            }
+    LaunchedEffect(initialRoutineIndex, existingRoutine, didLoadInitialData) {
+        if (didLoadInitialData) return@LaunchedEffect
+
+        if (initialRoutineIndex == null) {
+            initialDraft = RoutineEditorDraft(
+                name = routineName,
+                folderId = folderId,
+                description = routineDescription,
+                exercises = exercises
+            )
+            didLoadInitialData = true
+            return@LaunchedEffect
+        }
+
+        existingRoutine?.let { existing ->
+            val sortedExercises = existing.exercises.sortedBy { it.exercise.orderIndex }
+            routineName = existing.routine.name
+            folderId = existing.routine.folderId
+            routineDescription = existing.routine.description
+            showDescription = routineDescription.isNotBlank()
+            exercises = sortedExercises
+            initialDraft = RoutineEditorDraft(
+                name = existing.routine.name,
+                folderId = existing.routine.folderId,
+                description = existing.routine.description,
+                exercises = sortedExercises
+            )
+            didLoadInitialData = true
         }
     }
 
-    val hasChanges = true // Simplified
+    val currentDraft = RoutineEditorDraft(
+        name = routineName,
+        folderId = folderId,
+        description = routineDescription,
+        exercises = exercises
+    )
+    val hasChanges = currentDraft != (initialDraft ?: RoutineEditorDraft("", "My Routines", "", emptyList()))
     val canSave = routineName.isNotBlank() && exercises.isNotEmpty() && exercises.all { it.targets.isNotEmpty() }
 
     BackHandler {
@@ -108,19 +148,35 @@ fun RoutineBuilderScreen(
                 actions = {
                     TextButton(
                         onClick = {
+                            val now = System.currentTimeMillis()
+                            val originalRoutine = existingRoutine?.routine
                             val r = Routine(
                                 id = initialRoutineIndex ?: 0L,
-                                name = routineName,
-                                description = routineDescription,
+                                name = routineName.trim(),
+                                description = routineDescription.trim(),
                                 folderId = folderId,
-                                estimatedDuration = exercises.size * 10
+                                estimatedDuration = exercises.size * 10,
+                                createdAt = originalRoutine?.createdAt ?: now,
+                                updatedAt = now,
+                                exerciseOrder = exercises.joinToString("|") { it.exercise.exerciseName }
                             )
-                            viewModel.saveRoutine(r, exercises)
-                            onSaveRoutine()
+                            isSaving = true
+                            viewModel.saveRoutine(r, exercises) { success ->
+                                isSaving = false
+                                if (success) {
+                                    onSaveRoutine()
+                                } else {
+                                    Toast.makeText(context, "Couldn't save routine. Try again.", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         },
-                        enabled = canSave
+                        enabled = canSave && !isSaving
                     ) {
-                        Text("Save", color = if (canSave) Color(0xFF0A84FF) else Color.Gray, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isSaving) "Saving..." else "Save",
+                            color = if (canSave && !isSaving) Color(0xFF0A84FF) else Color.Gray,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF000000))

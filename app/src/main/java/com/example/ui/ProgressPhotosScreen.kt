@@ -2,6 +2,7 @@ package com.example.ui
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -492,7 +493,7 @@ fun saveImageToInternalStorage(context: Context, uri: Uri): String? {
         
         file.absolutePath
     } catch (e: Exception) {
-        e.printStackTrace()
+        Log.e("ProgressPhotos", "Failed to save image to internal storage", e)
         null
     }
 }

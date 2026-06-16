@@ -156,7 +156,7 @@ fun WeightScreen(viewModel: FitnessViewModel) {
                         
                         Spacer(Modifier.weight(1f))
                         if (sortedRecords.size >= 2 && dailyDiff != 0f) {
-                            val icon = if (dailyDiff > 0) Icons.Filled.TrendingUp else Icons.Filled.TrendingDown
+                            val icon = if (dailyDiff > 0) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown
                             Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.padding(bottom = 18.dp).size(28.dp))
                         }
                     }
@@ -331,7 +331,7 @@ fun WeightScreen(viewModel: FitnessViewModel) {
                             Icon(Icons.Filled.Close, contentDescription = "Delete", tint = Color.White.copy(alpha = 0.3f), modifier = Modifier.size(20.dp))
                         }
                     }
-                    Divider(color = Color.White.copy(alpha = 0.05f), thickness = 1.dp)
+                    HorizontalDivider(color = Color.White.copy(alpha = 0.05f), thickness = 1.dp)
                 }
             }
         }

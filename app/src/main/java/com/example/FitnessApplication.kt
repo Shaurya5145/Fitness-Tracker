@@ -12,7 +12,11 @@ class FitnessApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        if (BuildConfig.FIREBASE_API_KEY.isNotEmpty() && BuildConfig.FIREBASE_API_KEY != "LOCAL_API_KEY") {
+        if (
+            FirebaseApp.getApps(this).isEmpty() &&
+            BuildConfig.FIREBASE_API_KEY.isNotEmpty() &&
+            BuildConfig.FIREBASE_API_KEY != "LOCAL_API_KEY"
+        ) {
             val options = FirebaseOptions.Builder()
                 .setProjectId(BuildConfig.FIREBASE_PROJECT_ID)
                 .setApplicationId(BuildConfig.FIREBASE_APP_ID)

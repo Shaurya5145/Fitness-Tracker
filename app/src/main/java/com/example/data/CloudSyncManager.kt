@@ -101,7 +101,7 @@ class CloudSyncManager(val repository: AppRepository) {
 
             if (response.isSuccessful && !jsonStr.isNullOrEmpty()) {
                 val json = JSONObject(jsonStr)
-                val secureUrl = json.optString("secure_url", null)
+                val secureUrl = json.optString("secure_url").takeIf { it.isNotBlank() }
                 if (secureUrl != null && secureUrl.isNotEmpty()) {
                     return@withContext secureUrl
                 } else {
@@ -277,7 +277,7 @@ class CloudSyncManager(val repository: AppRepository) {
                             imageFile.parentFile?.mkdirs()
                             java.io.FileOutputStream(imageFile).use { it.write(bytes) }
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            Log.e("CloudSync", "Failed to restore legacy embedded photo", e)
                         }
                     }
 

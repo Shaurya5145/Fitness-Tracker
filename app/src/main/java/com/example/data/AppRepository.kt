@@ -7,14 +7,46 @@ class AppRepository(private val db: AppDatabase) {
     private val dao = db.appDao()
     private val routineDao = db.routineDao()
 
-    fun clearAllData() {
-        db.clearAllTables()
-    }
-
     suspend fun replaceAllDataForRestore(restore: suspend AppRepository.() -> Unit = {}) {
         db.withTransaction {
             clearTablesForRestore()
             this@AppRepository.restore()
+        }
+    }
+
+    suspend fun saveRoutineWithExercises(
+        routine: Routine,
+        exercises: List<RoutineExerciseWithTargets>
+    ): Long {
+        return db.withTransaction {
+            val routineId = if (routine.id == 0L) {
+                routineDao.insertRoutine(routine)
+            } else {
+                routineDao.updateRoutine(routine)
+                routineDao.deleteExercisesForRoutine(routine.id)
+                routine.id
+            }
+
+            exercises.forEachIndexed { exIndex, exWithTargets ->
+                val routineExerciseId = routineDao.insertRoutineExercise(
+                    exWithTargets.exercise.copy(
+                        id = 0L,
+                        routineId = routineId,
+                        orderIndex = exIndex
+                    )
+                )
+                exWithTargets.targets.forEachIndexed { setIndex, setTarget ->
+                    routineDao.insertSetTarget(
+                        setTarget.copy(
+                            id = 0L,
+                            routineExerciseId = routineExerciseId,
+                            orderIndex = setIndex
+                        )
+                    )
+                }
+            }
+
+            routineId
         }
     }
 
@@ -53,8 +85,6 @@ class AppRepository(private val db: AppDatabase) {
     
     suspend fun insertRoutineExercise(routineExercise: RoutineExercise) = routineDao.insertRoutineExercise(routineExercise)
     suspend fun updateRoutineExercise(routineExercise: RoutineExercise) = routineDao.updateRoutineExercise(routineExercise)
-    suspend fun deleteExercisesForRoutine(routineId: Long) = routineDao.deleteExercisesForRoutine(routineId)
-    
     suspend fun insertSetTarget(setTarget: SetTarget) = routineDao.insertSetTarget(setTarget)
     suspend fun deleteSetTargetsForExercise(routineExerciseId: Long) = routineDao.deleteSetTargetsForExercise(routineExerciseId)
 
@@ -92,7 +122,7 @@ class AppRepository(private val db: AppDatabase) {
     suspend fun deleteMealLog(mealId: Long, dateStamp: Long) = dao.deleteMealLog(mealId, dateStamp)
     suspend fun deleteMealLogById(id: Long) = dao.deleteMealLogById(id)
 
-    suspend fun insertProgressPhoto(photo: ProgressPhoto) = dao.insertProgressPhoto(photo)
+    suspend fun insertProgressPhoto(photo: ProgressPhoto): Long = dao.insertProgressPhoto(photo)
     suspend fun deleteProgressPhoto(photo: ProgressPhoto) = dao.deleteProgressPhoto(photo)
     suspend fun updateProgressPhoto(photo: ProgressPhoto) = dao.updateProgressPhoto(photo)
 

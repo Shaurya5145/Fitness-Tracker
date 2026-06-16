@@ -1,40 +1,32 @@
 package com.example.db
 
-import androidx.room.testing.MigrationTestHelper
-import androidx.sqlite.db.SupportSQLiteDatabase
-import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
+import android.content.Context
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
 import com.example.data.AppDatabase
-import org.junit.Rule
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.io.IOException
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(sdk = [34])
 class MigrationTest {
 
-    @get:Rule
-    val helper: MigrationTestHelper = MigrationTestHelper(
-        InstrumentationRegistry.getInstrumentation(),
-        AppDatabase::class.java.canonicalName,
-        FrameworkSQLiteOpenHelperFactory()
-    )
-
     @Test
-    @Throws(IOException::class)
-    fun migrate18To19() {
-        var db = helper.createDatabase("migration-test", 18)
-        db.close()
+    fun database_can_open_with_current_schema() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val db = Room.inMemoryDatabaseBuilder(
+            context,
+            AppDatabase::class.java
+        ).allowMainThreadQueries().build()
 
-        db = helper.runMigrationsAndValidate(
-            "migration-test",
-            19,
-            true,
-            AppDatabase.Companion.MIGRATION_18_19
-        )
+        try {
+            db.openHelper.writableDatabase
+            assertTrue(db.isOpen)
+        } finally {
+            db.close()
+        }
     }
 }

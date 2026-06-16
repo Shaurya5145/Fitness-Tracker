@@ -87,7 +87,5 @@ class AuthManager {
 
     fun signOut() {
         auth?.signOut()
-        // re-authenticate as guest?
-        auth?.signInAnonymously()
     }
 }
