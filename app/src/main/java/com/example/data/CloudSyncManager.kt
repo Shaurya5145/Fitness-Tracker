@@ -5,6 +5,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -16,11 +18,8 @@ import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-
 class CloudSyncManager(val repository: AppRepository) {
-    private val syncMutex = Mutex()
+    private val backupMutex = Mutex()
 
     private val firestore: FirebaseFirestore? by lazy {
         try {
@@ -179,7 +178,7 @@ class CloudSyncManager(val repository: AppRepository) {
     }
 
     // Call this after any important local change
-    suspend fun backupToCloud(): Boolean = syncMutex.withLock {
+    suspend fun backupToCloud(): Boolean = backupMutex.withLock {
         withContext(Dispatchers.IO) {
             val user = auth?.currentUser ?: return@withContext false
             val db = firestore ?: return@withContext false
@@ -220,18 +219,13 @@ class CloudSyncManager(val repository: AppRepository) {
         }
     }
 
-    suspend fun restoreFromCloud(): Boolean = syncMutex.withLock {
-        withContext(Dispatchers.IO) {
-            val user = auth?.currentUser ?: return@withContext false
-            val db = firestore ?: return@withContext false
+    suspend fun restoreFromCloud(): Boolean = withContext(Dispatchers.IO) {
+        val user = auth?.currentUser ?: return@withContext false
+        val db = firestore ?: return@withContext false
 
-            try {
-                val doc = db.collection("users").document(user.uid).get().await()
-                if (!doc.exists()) {
-                    Log.d("CloudSync", "No cloud data found.")
-                    return@withContext false
-                }
-
+        try {
+            val doc = db.collection("users").document(user.uid).get().await()
+            if (doc.exists()) {
                 val meals = doc.get("meals") as? List<Map<String, Any>> ?: emptyList()
                 val mealEntities = meals.map { map ->
                     val id = (map["id"] as? Number)?.toLong() ?: 0L
@@ -338,6 +332,13 @@ class CloudSyncManager(val repository: AppRepository) {
                     TargetWeight(1, weightKg, dateStamp, startWeightKg)
                 } else null
 
+                val targetNutritionMap = doc.get("targetNutrition") as? Map<String, Any>
+                val targetNutritionEntity = if (targetNutritionMap != null) {
+                    val calories = (targetNutritionMap["targetCalories"] as? Number)?.toInt() ?: 0
+                    val protein = (targetNutritionMap["targetProtein"] as? Number)?.toFloat() ?: 0f
+                    TargetNutrition(1, calories, protein)
+                } else null
+
                 val routinesList = doc.get("routines") as? List<Map<String, Any>> ?: emptyList()
                 val routineEntities = mutableListOf<Routine>()
                 val routineExerciseEntities = mutableListOf<RoutineExercise>()
@@ -384,13 +385,6 @@ class CloudSyncManager(val repository: AppRepository) {
                     }
                 }
 
-                val targetNutritionMap = doc.get("targetNutrition") as? Map<String, Any>
-                val targetNutritionEntity = if (targetNutritionMap != null) {
-                    val targetCalories = (targetNutritionMap["targetCalories"] as? Number)?.toInt() ?: 0
-                    val targetProtein = (targetNutritionMap["targetProtein"] as? Number)?.toFloat() ?: 0f
-                    TargetNutrition(1, targetCalories, targetProtein)
-                } else null
-
                 repository.replaceAllDataForRestore {
                     mealEntities.forEach { insertMeal(it) }
                     weightEntities.forEach { insertWeightRecord(it) }
@@ -411,10 +405,14 @@ class CloudSyncManager(val repository: AppRepository) {
 
                 Log.d("CloudSync", "Restore successful")
                 true
-            } catch (e: Exception) {
-                Log.e("CloudSync", "Restore failed", e)
-                false
+            } else {
+                val backupSucceeded = backupToCloud()
+                Log.d("CloudSync", "No cloud data found. Backed up local data to cloud.")
+                backupSucceeded
             }
+        } catch (e: Exception) {
+            Log.e("CloudSync", "Restore failed", e)
+            false
         }
     }
 }

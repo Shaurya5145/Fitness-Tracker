@@ -7,7 +7,11 @@ class AppRepository(private val db: AppDatabase) {
     private val dao = db.appDao()
     private val routineDao = db.routineDao()
 
-    suspend fun replaceAllDataForRestore(restore: suspend AppRepository.() -> Unit = {}) {
+    fun clearAllData() {
+        db.clearAllTables()
+    }
+
+    suspend fun replaceAllDataForRestore(restore: suspend AppRepository.() -> Unit) {
         db.withTransaction {
             clearTablesForRestore()
             this@AppRepository.restore()
