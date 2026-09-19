@@ -307,8 +307,7 @@ For a change:
 5. Update documentation and include screenshots for visible UI changes.
 6. Keep real keys, account data, signing files, and private progress photos out of commits.
 
-## Maintainer and license
+## Maintainer
 
 Maintained by [Shaurya Gupta](https://github.com/Shaurya5145).
 
-There is currently no `LICENSE` file in this repository; no open-source license is declared here.
