@@ -310,6 +310,6 @@ For a change:
 
 ## Maintainer and license
 
-Maintained by [Shaurya Gupta](https://github.com/Shaurya5145). The project originated from the [Google AI Studio repository template](https://github.com/google-gemini/aistudio-repository-template).
+Maintained by [Shaurya Gupta](https://github.com/Shaurya5145).
 
 There is currently no `LICENSE` file in this repository; no open-source license is declared here.
