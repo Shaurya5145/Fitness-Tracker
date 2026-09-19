@@ -6,7 +6,6 @@ FitArc is an Android fitness companion that brings workout tracking, reusable ro
 
 The larger vision connects **training, nutrition, recovery, and physical progress** in a single daily dashboard. The interface uses dark surfaces, electric-blue accents, clear charts, and quick data entry.
 
-> **Project status:** In development. This README distinguishes the Android implementation in this repository from the broader product roadmap. The app is currently labeled **Fitness Tracker** in Android resources; **FitArc** is the product name. Sleep tracking, Pro subscriptions, and a protected server backend are part of the product direction but are not included in this repository snapshot.
 
 ## Contents
 
